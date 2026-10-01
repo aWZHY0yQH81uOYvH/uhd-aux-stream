@@ -536,6 +536,47 @@ void b200_impl::handle_overflow(const size_t radio_index)
 /***********************************************************************
  * Transmit streamer
  **********************************************************************/
+
+// Custom AUX sink. Samples are passed through as raw sc16.
+tx_streamer::sptr b200_impl::get_aux_tx_stream(const uhd::stream_args_t& args_)
+{
+    stream_args_t args = args_;
+    if (args.otw_format.empty())
+        args.otw_format = "sc16";
+
+    static const size_t hdr_size = 0
+                                   + vrt::max_if_hdr_words32 * sizeof(uint32_t)
+                                   - sizeof(vrt::if_packet_info_t().cid)
+                                   - sizeof(vrt::if_packet_info_t().tsi);
+    const size_t bpp = _data_transport->get_send_frame_size() - hdr_size;
+    const size_t spp = bpp / convert::get_bytes_per_item(args.otw_format);
+
+    auto my_streamer = std::make_shared<sph::send_packet_streamer>(spp, args.args);
+    my_streamer->resize(1);
+    my_streamer->set_vrt_packer(&b200_if_hdr_pack_le);
+
+    uhd::convert::id_type id;
+    id.input_format  = args.cpu_format;
+    id.num_inputs    = 1;
+    id.output_format = args.otw_format + "_item32_le";
+    id.num_outputs   = 1;
+    my_streamer->set_converter(id);
+
+    my_streamer->set_xport_chan_get_buff(
+        0, std::bind(&zero_copy_if::get_send_buff, _data_transport, std::placeholders::_1));
+    my_streamer->set_async_receiver(std::bind(&async_md_type::pop_with_timed_wait,
+        _async_task_data->async_md,
+        std::placeholders::_1,
+        std::placeholders::_2));
+    my_streamer->set_xport_chan_sid(0, true, B200_TX_AUX_SID);
+    my_streamer->set_enable_trailer(false);
+
+    // update_tick_rate() only knows about radio streamers, so set these by hand
+    my_streamer->set_tick_rate(this->get_tick_rate());
+    my_streamer->set_samp_rate(this->get_tick_rate());
+    return my_streamer;
+}
+
 tx_streamer::sptr b200_impl::get_tx_stream(const uhd::stream_args_t& args_)
 {
     std::lock_guard<std::mutex> lock(_transport_setup_mutex);
@@ -550,6 +591,12 @@ tx_streamer::sptr b200_impl::get_tx_stream(const uhd::stream_args_t& args_)
     if (_tree->access<bool>("/mboards/0/auto_tick_rate").get()) {
         set_auto_tick_rate(0, "", args.channels.size());
     }
+
+    // AUX sink has no radio behind it
+    if (args.channels.size() == 1 and args.channels[0] == B200_TX_AUX_CHAN) {
+        return get_aux_tx_stream(args);
+    }
+
     check_streamer_args(args, this->get_tick_rate(), "TX");
 
     std::shared_ptr<sph::send_packet_streamer> my_streamer;

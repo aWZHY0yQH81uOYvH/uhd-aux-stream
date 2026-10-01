@@ -1,3 +1,7 @@
+# This Fork
+
+This fork adds an aux channel of data to a B210 to run a SPI DAC over GPIO, synchronized with the RF baseband.
+
 # USRP Hardware Driver (UHD™) Software
 
 Welcome to the UHD™ software distribution! UHD is the free & open-source

@@ -9,6 +9,7 @@
 # example applications
 ########################################################################
 set(example_sources
+    aux.cpp
     benchmark_rate.cpp
     rx_multi_samples.cpp
     rx_samples_to_file.cpp

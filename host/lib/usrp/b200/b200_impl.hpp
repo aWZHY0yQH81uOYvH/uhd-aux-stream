@@ -63,6 +63,9 @@ static const uint32_t B200_TX_MSG0_SID  = FLIP_SID(B200_TX_DATA0_SID);
 static const uint32_t B200_TX_DATA1_SID = 0x00000060;
 static const uint32_t B200_TX_MSG1_SID  = FLIP_SID(B200_TX_DATA1_SID);
 
+static const uint32_t B200_TX_AUX_SID = 0x00000070;
+static const size_t B200_TX_AUX_CHAN  = 2;
+
 static const uint32_t B200_RX_DATA0_SID = 0x000000A0;
 static const uint32_t B200_RX_DATA1_SID = 0x000000B0;
 
@@ -128,6 +131,8 @@ public:
      * and calls said method. If arguments are invalid, throws a
      * uhd::value_error.
      */
+    uhd::tx_streamer::sptr get_aux_tx_stream(const uhd::stream_args_t& args);
+
     void check_streamer_args(const uhd::stream_args_t& args,
         double tick_rate,
         const std::string& direction = "");
