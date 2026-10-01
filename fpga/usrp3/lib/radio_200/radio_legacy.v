@@ -33,6 +33,12 @@ module radio_legacy
 
    output reg [63:0] vita_time_b,
 
+   output strobe_tx,
+
+   input [63:0] rb_data_user,
+   output [31:0] user_reg_0_value,
+   output [31:0] user_reg_1_value,
+
    output [63:0] debug
    );
 
@@ -164,7 +170,7 @@ module radio_legacy
       .ready(1'b1), .readback(rb_data),
       .debug(debug_radio_ctrl_proc));
 
-   reg [63:0]     rb_data_user;
+   // reg [63:0]     rb_data_user;
 generate
    if (USER_SETTINGS == 1) begin
       wire           set_stb_user;
@@ -197,7 +203,6 @@ generate
       // regs->poke32(0, 0xCAFE);
       // regs->poke32(4, 0xBEEF);
       // std::cout << boost::format("0x%016X") % regs->peek64(0) << std::endl;
-      wire [31:0] user_reg_0_value, user_reg_1_value;
 
       setting_reg #(.my_addr(8'd0), .awidth(8), .width(32)) user_reg_0
         (.clk(radio_clk), .rst(radio_rst), .strobe(set_stb_user), .addr(set_addr_user), .in(set_data_user),
@@ -207,15 +212,15 @@ generate
         (.clk(radio_clk), .rst(radio_rst), .strobe(set_stb_user), .addr(set_addr_user), .in(set_data_user),
          .out(user_reg_1_value), .changed());
 
-      always @* begin
-         case(rb_addr_user)
-            8'd0 : rb_data_user <= {user_reg_1_value, user_reg_0_value};
-            default : rb_data_user <= 64'd0;
-         endcase
-      end
+      // always @* begin
+      //    case(rb_addr_user)
+      //       8'd0 : rb_data_user <= {user_reg_1_value, user_reg_0_value};
+      //       default : rb_data_user <= 64'd0;
+      //    endcase
+      // end
 
    end else begin    //for USER_SETTINGS == 1
-      always @* rb_data_user <= 64'd0;
+      // always @* rb_data_user <= 64'd0;
    end
 endgenerate
 
@@ -517,6 +522,6 @@ endgenerate
    /*******************************************************************
     * Debug only logic below here.
     ******************************************************************/
- assign debug = 0;
+ assign debug = debug_tx_control;
 
 endmodule // radio_legacy

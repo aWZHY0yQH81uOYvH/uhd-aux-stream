@@ -17,6 +17,7 @@ module b200_core
     parameter L0_CTRL_SID = 8'h40,
     parameter R0_DATA_SID = 8'h50,
     parameter R1_DATA_SID = 8'h60,
+    parameter AUX_DATA_SID = 8'h70,
     parameter DEMUX_SID_MASK = 8'hf0,
     parameter EXTRA_BUFF_SIZE = 0,
     parameter RADIO_FIFO_SIZE = 11,
@@ -272,6 +273,7 @@ module b200_core
      ******************************************************************/
     wire [63:0] r0_tx_tdata; wire r0_tx_tlast, r0_tx_tvalid, r0_tx_tready;
     wire [63:0] r1_tx_tdata; wire r1_tx_tlast, r1_tx_tvalid, r1_tx_tready;
+    wire [63:0] aux_tx_tdata; wire aux_tx_tlast, aux_tx_tvalid, aux_tx_tready;
     wire [63:0] tx_tdata_int; wire tx_tlast_int, tx_tvalid_int, tx_tready_int;
 
     axi_fifo #(.WIDTH(65), .SIZE(EXTRA_BUFF_SIZE)) extra_tx_buff
@@ -283,14 +285,15 @@ module b200_core
     wire [1:0] tx_dst =
         ((tx_hdr[7:0] & DEMUX_SID_MASK) == R0_DATA_SID)? 0 : (
         ((tx_hdr[7:0] & DEMUX_SID_MASK) == R1_DATA_SID)? 1 : (
-    3));
-    axi_demux4 #(.ACTIVE_CHAN(4'b0011), .WIDTH(64), .BUFFER(1)) demux_for_tx
+        ((tx_hdr[7:0] & DEMUX_SID_MASK) == AUX_DATA_SID)? 2 : (
+    3)));
+    axi_demux4 #(.ACTIVE_CHAN(4'b0111), .WIDTH(64), .BUFFER(1)) demux_for_tx
      (.clk(bus_clk), .reset(bus_rst), .clear(1'b0),
       .header(tx_hdr), .dest(tx_dst),
       .i_tdata(tx_tdata_int), .i_tlast(tx_tlast_int), .i_tvalid(tx_tvalid_int), .i_tready(tx_tready_int),
       .o0_tdata(r0_tx_tdata), .o0_tlast(r0_tx_tlast), .o0_tvalid(r0_tx_tvalid), .o0_tready(r0_tx_tready),
       .o1_tdata(r1_tx_tdata), .o1_tlast(r1_tx_tlast), .o1_tvalid(r1_tx_tvalid), .o1_tready(r1_tx_tready),
-      .o2_tdata(), .o2_tlast(), .o2_tvalid(), .o2_tready(1'b1),
+      .o2_tdata(aux_tx_tdata), .o2_tlast(aux_tx_tlast), .o2_tvalid(aux_tx_tvalid), .o2_tready(aux_tx_tready),
       .o3_tdata(), .o3_tlast(), .o3_tvalid(), .o3_tready(1'b1));
 
     /*******************************************************************
@@ -300,25 +303,35 @@ module b200_core
    wire [31:0] fe0_gpio_out32;
    assign fe0_gpio_out = fe0_gpio_out32[7:0];
 
+   wire radio0_strobe;
+
+   wire [63:0] rb_data_user;
+   wire [31:0] user_reg_0_value;
+   wire [31:0] user_reg_1_value;
+
    radio_legacy #(
       .RADIO_FIFO_SIZE(RADIO_FIFO_SIZE),
       .SAMPLE_FIFO_SIZE(SAMPLE_FIFO_SIZE),
-      .FP_GPIO(1),
+      .FP_GPIO(0),
       .NEW_HB_INTERP(1),
       .NEW_HB_DECIM(1),
       .SOURCE_FLOW_CONTROL(0),
-      .USER_SETTINGS(0),
+      .USER_SETTINGS(1),
       .DEVICE(DEVICE)
    ) radio_0 (
       .radio_clk(radio_clk), .radio_rst(radio_rst),
       .rx(rx0), .tx(tx0), .pps(pps), .time_sync(time_sync_r),
       .fe_gpio_in(32'h00000000), .fe_gpio_out(fe0_gpio_out32), .fe_gpio_ddr(/* Always assumed to be outputs */),
-      .fp_gpio_in(fp_gpio_in), .fp_gpio_out(fp_gpio_out), .fp_gpio_ddr(fp_gpio_ddr),
+      .fp_gpio_in(32'h00000000), .fp_gpio_out(), .fp_gpio_ddr(),
       .bus_clk(bus_clk), .bus_rst(bus_rst),
       .tx_tdata(r0_tx_tdata), .tx_tlast(r0_tx_tlast), .tx_tvalid(r0_tx_tvalid), .tx_tready(r0_tx_tready),
       .rx_tdata(r0_rx_tdata), .rx_tlast(r0_rx_tlast),  .rx_tvalid(r0_rx_tvalid), .rx_tready(r0_rx_tready),
       .ctrl_tdata(r0_ctrl_tdata), .ctrl_tlast(r0_ctrl_tlast),  .ctrl_tvalid(r0_ctrl_tvalid), .ctrl_tready(r0_ctrl_tready),
       .resp_tdata(r0_resp_tdata), .resp_tlast(r0_resp_tlast),  .resp_tvalid(r0_resp_tvalid), .resp_tready(r0_resp_tready),
+      .strobe_tx(radio0_strobe),
+      .rb_data_user(rb_data_user),
+      .user_reg_0_value(user_reg_0_value),
+      .user_reg_1_value(user_reg_1_value),
       .debug(radio0_debug)
    );
 
@@ -373,6 +386,31 @@ module b200_core
     assign r1_tx_tready = r1_tx_tready;
 
 `endif // !`ifdef TARGET_B210
+
+    /*******************************************************************
+      * AUX DAC output
+      ******************************************************************/
+
+    assign fp_gpio_ddr = 8'b1111;
+
+    aux aux_inst (
+      .bus_clk(bus_clk), .bus_rst(bus_rst),
+      .i_tdata(aux_tx_tdata), .i_tlast(aux_tx_tlast), .i_tvalid(aux_tx_tvalid), .i_tready(aux_tx_tready),
+
+      .radio_clk(radio_clk), .radio_rst(radio_rst),
+      .external_state(radio0_debug[2:0]),
+      .strobe_rf(radio0_strobe),
+      .sample_div(user_reg_0_value),
+      .spi_clk_div(user_reg_1_value),
+      .debug(rb_data_user[31:0]),
+
+      .dac_clk(fp_gpio_out[0]),
+      .dac_sync(fp_gpio_out[1]),
+      .dac_data(fp_gpio_out[2])
+    );
+
+    assign fp_gpio_out[3] = radio0_strobe;
+    assign rb_data_user[63:32] = user_reg_0_value;
 
    /*******************************************************************
     * Debug UART for FX3
